@@ -1,0 +1,253 @@
+*&---------------------------------------------------------------------*
+*& Report ZVV_PATIENT_MODIF
+*&---------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+REPORT ZVV_PATIENT_MODIF.
+TABLES: zvv_patient.
+
+TYPE-POOLS: slis.
+
+DATA: gt_patient TYPE TABLE OF zvv_patient,
+      gs_patient TYPE zvv_patient.
+
+DATA: gv_new_id_num TYPE n LENGTH 10,
+      gv_new_id     TYPE zvv_patient-patient_id.
+
+DATA: gs_layout   TYPE slis_layout_alv.
+
+DATA: lt_list   TYPE slis_t_listheader,
+      ls_list   TYPE slis_listheader.
+
+
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-001.
+
+PARAMETERS: rb_disp RADIOBUTTON GROUP g1 DEFAULT 'X'
+                                   USER-COMMAND rad ,
+            rb_mod  RADIOBUTTON GROUP g1.
+
+SELECTION-SCREEN END OF BLOCK b1.
+
+
+SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE text-002.
+
+SELECT-OPTIONS: s_pid FOR zvv_patient-patient_id MODIF ID DSP.
+
+PARAMETERS: p_dept TYPE zvv_patient-department_code MODIF ID DSP.
+
+PARAMETERS: p_year TYPE n LENGTH 4 MODIF ID DSP  .
+
+SELECTION-SCREEN END OF BLOCK b2.
+
+
+SELECTION-SCREEN BEGIN OF BLOCK b3 WITH FRAME TITLE text-003.
+
+PARAMETERS:
+p_fname TYPE zvv_patient-first_name      MODIF ID MOD  ,
+p_lname TYPE zvv_patient-last_name       MODIF ID MOD ,
+p_dob   TYPE zvv_patient-dob   MODIF ID MOD  ,
+p_regdt TYPE zvv_patient-REGESTRATION_CODE MODIF ID MOD ,
+p_mdept TYPE zvv_patient-department_code MODIF ID MOD ,
+p_bgrp  TYPE zvv_patient-blood_group     MODIF ID MOD,
+p_gen   TYPE zvv_patient-gender          MODIF ID MOD,
+p_phone TYPE zvv_patient-phone           MODIF ID MOD,
+p_email TYPE zvv_patient-email_id        MODIF ID MOD,
+p_city  TYPE zvv_patient-city            MODIF ID MOD,
+p_reg   TYPE zvv_patient-region_code     MODIF ID MOD.
+
+SELECTION-SCREEN END OF BLOCK b3.
+
+* Checking the conditions
+IF rb_disp = 'X'.
+  IF p_year IS INITIAL.
+    MESSAGE 'Registration year is mandatory' TYPE 'E'.
+  ENDIF.
+  ELSEIF rb_mod = 'X'.
+    IF p_fname IS INITIAL OR p_lname IS INITIAL OR p_dob IS INITIAL OR p_regdt IS INITIAL OR p_mdept IS INITIAL .
+      MESSAGE 'Enter all the required details' TYPE 'E'.
+    ENDIF.
+ENDIF.
+
+
+AT SELECTION-SCREEN OUTPUT.
+
+  LOOP AT SCREEN.
+
+    IF rb_disp = 'X'.
+      IF screen-group1 = 'DSP'.
+        screen-active = 1.
+      ELSEIF screen-group1 = 'MOD'.
+        screen-active = 0.
+      ENDIF.
+
+    ELSEIF rb_mod = 'X'.
+
+      IF screen-group1 = 'MOD'.
+        screen-active = 1.
+      ELSEIF screen-group1 = 'DSP'.
+        screen-active = 0.
+      ENDIF.
+
+    ENDIF.
+
+    MODIFY SCREEN.
+
+  ENDLOOP.
+
+
+START-OF-SELECTION.
+
+  IF rb_disp = 'X'.
+
+    PERFORM display_patients.
+
+  ELSEIF rb_mod = 'X'.
+
+    PERFORM register_patient.
+
+  ENDIF.
+
+
+FORM display_patients.
+
+
+SELECT *
+  FROM zvv_patient
+  INTO TABLE gt_patient
+  WHERE patient_id IN s_pid.
+
+IF P_DEPT IS NOT INITIAL.
+  DELETE gt_patient WHERE department_code(4) <> p_dept.
+ENDIF.
+IF P_year IS NOT INITIAL.
+DELETE gt_patient WHERE regestration_code(4) <> p_year.
+ENDIF.
+
+
+
+  IF gt_patient IS INITIAL.
+    MESSAGE 'No records found' TYPE 'I'.
+    EXIT.
+  ENDIF.
+
+
+  ls_list-typ  = 'H'.
+  ls_list-info = 'Patient Report'.
+  APPEND ls_list TO lt_list.
+
+  CLEAR ls_list.
+  ls_list-typ  = 'S'.
+  ls_list-key  = 'Run Date'.
+  ls_list-info = sy-datum.
+  APPEND ls_list TO lt_list.
+
+  CLEAR ls_list.
+  ls_list-typ  = 'S'.
+  ls_list-key  = 'Run Time'.
+  ls_list-info = sy-uzeit.
+  APPEND ls_list TO lt_list.
+
+  CLEAR ls_list.
+  ls_list-typ  = 'S'.
+  ls_list-key  = 'Run By'.
+  ls_list-info = sy-uname.
+  APPEND ls_list TO lt_list.
+
+
+
+gs_layout-zebra = 'X'.                  " alternate row colors
+gs_layout-colwidth_optimize = 'X'.
+
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+    EXPORTING
+      i_callback_program     = sy-repid
+      i_structure_name ='ZVV_PATIENT'
+      is_layout   = gs_layout
+      i_callback_top_of_page = 'TOP_OF_PAGE'
+    TABLES
+      t_outtab    = gt_patient.
+
+ENDFORM.
+
+FORM register_patient.
+
+  DATA: lv_last TYPE zvv_patient-patient_id.
+
+  SELECT MAX( patient_id )
+    INTO lv_last
+    FROM zvv_patient.
+
+  gv_new_id_num = lv_last.
+  gv_new_id_num = gv_new_id_num + 1.
+  gv_new_id = gv_new_id_num.
+
+
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+    EXPORTING
+      input  = gv_new_id
+    IMPORTING
+      output = gv_new_id.
+
+  CALL FUNCTION 'ENQUEUE_EZVV_PATIENT'
+    EXPORTING
+      patient_id = gv_new_id
+    EXCEPTIONS
+      foreign_lock = 1
+      system_failure = 2
+      OTHERS = 3.
+
+  IF sy-subrc <> 0.
+    MESSAGE 'Patient record locked by another user' TYPE 'E'.
+  ENDIF.
+
+  CLEAR gs_patient.
+
+  gs_patient-patient_id        = gv_new_id.
+  gs_patient-first_name        = p_fname.
+  gs_patient-last_name         = p_lname.
+  gs_patient-dob     = p_dob.
+  gs_patient-regestration_code = p_regdt.
+  gs_patient-department_code   = p_mdept.
+  gs_patient-blood_group       = p_bgrp.
+  gs_patient-gender            = p_gen.
+  gs_patient-phone             = p_phone.
+  gs_patient-email_id          = p_email.
+  gs_patient-city              = p_city.
+  gs_patient-region_code       = p_reg.
+
+  INSERT zvv_patient FROM gs_patient.
+
+  IF sy-subrc = 0.
+
+    COMMIT WORK.
+
+    CALL FUNCTION 'DEQUEUE_EZVV_PATIENT'
+      EXPORTING
+        patient_id = gv_new_id.
+
+    MESSAGE |Patient Registered Successfully. New Patient ID : { gv_new_id }|
+    TYPE 'S'.
+
+  ELSE.
+
+    ROLLBACK WORK.
+
+    CALL FUNCTION 'DEQUEUE_EZVV_PATIENT'
+      EXPORTING
+        patient_id = gv_new_id.
+
+    MESSAGE 'Insert Failed' TYPE 'E'.
+
+  ENDIF.
+
+ENDFORM.
+
+
+
+FORM top_of_page.
+* we can write the list type info here by ,if we want to write outside the uname,datum should be above the alv_grid
+
+  CALL FUNCTION 'REUSE_ALV_COMMENTARY_WRITE'
+    EXPORTING
+      it_list_commentary = lt_list.
+
+ENDFORM.

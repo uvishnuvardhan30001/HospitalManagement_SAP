@@ -1,0 +1,183 @@
+REPORT ZVV_BED_ALLOT.
+TABLES: zvv_bed,
+        zvv_patient.
+
+TYPE-POOLS: slis.
+
+SELECT-OPTIONS:
+  s_bedid FOR zvv_bed-bed_id,
+  s_patid FOR zvv_bed-allotted_to,
+  s_admit FOR zvv_bed-admitted_on.
+PARAMETERS:
+  p_ward TYPE zvv_bed-ward_name,
+  p_dept TYPE zvv_bed-department_code.
+
+DATA: lt_list   TYPE slis_t_listheader,
+      ls_list   TYPE slis_listheader.
+TYPES: BEGIN OF ty_final,
+
+         bed_id          TYPE zvv_bed-bed_id,
+         ward_name       TYPE zvv_bed-ward_name,
+         department_code TYPE zvv_bed-department_code,
+         allotted_to     TYPE zvv_bed-allotted_to,
+         admitted_on     TYPE zvv_bed-admitted_on,
+         discharge_date  TYPE zvv_bed-discharge_date,
+
+         first_name      TYPE zvv_patient-first_name,
+         last_name       TYPE zvv_patient-last_name,
+         phone           TYPE zvv_patient-phone,
+         email_id        TYPE zvv_patient-email_id,
+         city            TYPE zvv_patient-city,
+         region_code     TYPE zvv_patient-region_code,
+
+       END OF ty_final.
+
+DATA: gt_final TYPE TABLE OF ty_final,
+      gs_final TYPE ty_final.
+
+DATA: gt_fieldcat TYPE slis_t_fieldcat_alv,
+      gs_fieldcat TYPE slis_fieldcat_alv.
+
+DATA: gt_events TYPE slis_t_event,
+      gs_event TYPE slis_alv_event.
+
+START-OF-SELECTION.
+
+  SELECT
+         a~bed_id
+         a~ward_name
+         a~department_code
+         a~allotted_to
+         a~admitted_on
+         a~discharge_date
+
+         b~first_name
+         b~last_name
+         b~phone
+         b~email_id
+         b~city
+         b~region_code
+
+    INTO TABLE gt_final
+
+    FROM zvv_bed AS a
+    INNER JOIN zvv_patient AS b
+      ON a~allotted_to = b~patient_id
+
+    WHERE a~bed_id IN s_bedid
+      AND a~allotted_to IN s_patid
+      AND a~admitted_on IN s_admit.
+
+  IF p_ward IS NOT INITIAL.
+    DELETE gt_final WHERE ward_name <> p_ward.
+  ENDIF.
+
+  IF p_dept IS NOT INITIAL.
+    DELETE gt_final WHERE department_code <> p_dept.
+  ENDIF.
+
+  IF gt_final IS INITIAL.
+    MESSAGE 'No Data Found' TYPE 'I'.
+    EXIT.
+  ENDIF.
+
+
+
+  ls_list-typ  = 'H'.
+  ls_list-info = 'Patient Report'.
+  APPEND ls_list TO lt_list.
+
+  CLEAR ls_list.
+  ls_list-typ  = 'S'.
+  ls_list-key  = 'Run Date'.
+  ls_list-info = sy-datum.
+  APPEND ls_list TO lt_list.
+
+  CLEAR ls_list.
+  ls_list-typ  = 'S'.
+  ls_list-key  = 'Run Time'.
+  ls_list-info = sy-uzeit.
+  APPEND ls_list TO lt_list.
+
+  CLEAR ls_list.
+  ls_list-typ  = 'S'.
+  ls_list-key  = 'Run By'.
+  ls_list-info = sy-uname.
+  APPEND ls_list TO lt_list.
+
+PERFORM build_fieldcat.
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+    EXPORTING
+       i_callback_program     = sy-repid
+      it_fieldcat = gt_fieldcat
+      it_events   = gt_events
+       i_callback_top_of_page = 'TOP_OF_PAGE'
+    TABLES
+      t_outtab    = gt_final.
+
+
+*&---------------------------------------------------------------------*
+*&      Form  BUILD_FIELDCAT
+*&---------------------------------------------------------------------*
+FORM build_fieldcat.
+  CLEAR gs_fieldcat.
+  gs_fieldcat-fieldname = 'BED_ID'.
+  gs_fieldcat-seltext_m = 'Bed ID'.
+  APPEND gs_fieldcat TO gt_fieldcat.
+  CLEAR gs_fieldcat.
+  gs_fieldcat-fieldname = 'WARD_NAME'.
+  gs_fieldcat-seltext_m = 'Ward Name'.
+  APPEND gs_fieldcat TO gt_fieldcat.
+  CLEAR gs_fieldcat.
+  gs_fieldcat-fieldname = 'DEPARTMENT_CODE'.
+  gs_fieldcat-seltext_m = 'Department'.
+  APPEND gs_fieldcat TO gt_fieldcat.
+  CLEAR gs_fieldcat.
+  gs_fieldcat-fieldname = 'ALLOTTED_TO'.
+  gs_fieldcat-seltext_m = 'Patient ID'.
+  APPEND gs_fieldcat TO gt_fieldcat.
+  CLEAR gs_fieldcat.
+  gs_fieldcat-fieldname = 'ADMITTED_ON'.
+  gs_fieldcat-seltext_m = 'Admitted On'.
+  APPEND gs_fieldcat TO gt_fieldcat.
+  CLEAR gs_fieldcat.
+  gs_fieldcat-fieldname = 'DISCHARGE_DATE'.
+  gs_fieldcat-seltext_m = 'Discharge Date'.
+  APPEND gs_fieldcat TO gt_fieldcat.
+  CLEAR gs_fieldcat.
+  gs_fieldcat-fieldname = 'FIRST_NAME'.
+  gs_fieldcat-seltext_m = 'First Name'.
+  APPEND gs_fieldcat TO gt_fieldcat.
+  CLEAR gs_fieldcat.
+  gs_fieldcat-fieldname = 'LAST_NAME'.
+  gs_fieldcat-seltext_m = 'Last Name'.
+  APPEND gs_fieldcat TO gt_fieldcat.
+  CLEAR gs_fieldcat.
+  gs_fieldcat-fieldname = 'PHONE'.
+  gs_fieldcat-seltext_m = 'Phone'.
+  APPEND gs_fieldcat TO gt_fieldcat.
+  CLEAR gs_fieldcat.
+  gs_fieldcat-fieldname = 'EMAIL_ID'.
+  gs_fieldcat-seltext_m = 'Email ID'.
+  gs_fieldcat-outputlen = 30.
+  APPEND gs_fieldcat TO gt_fieldcat.
+  CLEAR gs_fieldcat.
+  gs_fieldcat-fieldname = 'CITY'.
+  gs_fieldcat-seltext_m = 'City'.
+  APPEND gs_fieldcat TO gt_fieldcat.
+  CLEAR gs_fieldcat.
+  gs_fieldcat-fieldname = 'REGION_CODE'.
+  gs_fieldcat-seltext_m = 'Region'.
+  APPEND gs_fieldcat TO gt_fieldcat.
+ENDFORM.
+
+
+
+FORM top_of_page.
+* we can write the list type info here by ,if we want to write outside the uname,datum should be above the alv_grid
+
+  CALL FUNCTION 'REUSE_ALV_COMMENTARY_WRITE'
+    EXPORTING
+      it_list_commentary = lt_list.
+
+ENDFORM.

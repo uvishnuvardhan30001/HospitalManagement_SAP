@@ -1,0 +1,262 @@
+*&---------------------------------------------------------------------*
+*& Module Pool       ZVV_HOSPMANAGE
+*&
+*&---------------------------------------------------------------------*
+*&
+*&
+*&---------------------------------------------------------------------*
+PROGRAM ZVV_HOSPMANAGE.
+DATA:
+      gv_bedid TYPE zvv_bed-BED_ID,
+      gv_patient TYPE zvv_bed-ALLOTTED_TO,
+      gv_ward TYPE zvv_bed-WARD_NAME,
+      gv_dept TYPE zvv_bed-DEPARTMENT_CODE,
+      gv_admit TYPE zvv_bed-ADMITTED_ON,
+      gv_discharge TYPE zvv_bed-DISCHARGE_DATE.
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_9001  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_0100  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE USER_COMMAND_0100 INPUT.
+CASE sy-ucomm.
+  WHEN 'PATIENT'.
+    CALL TRANSACTION 'ZPATIENT_TCODE'.
+  WHEN 'OPD'.
+    CALL TRANSACTION 'ZOPD_TCODE'.
+  WHEN 'BED'.
+    CALL TRANSACTION 'ZBED_TCODE'.
+  WHEN 'ADMIT'.
+    CALL SCREEN 0200.
+  WHEN 'DISCHARGE'.
+    CALL SCREEN 0300.
+  WHEN 'BACK' OR 'EXIT' OR 'CANCEL'.
+    LEAVE PROGRAM.
+ENDCASE.
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_0100  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE STATUS_0100 OUTPUT.
+ SET PF-STATUS 'HOSPITAL_GUI'.
+ SET TITLEBAR 'HOSPITAL_TITLE'.
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_0200  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE STATUS_0200 OUTPUT.
+*  SET PF-STATUS 'xxxxxxxx'.
+*  SET TITLEBAR 'xxx'.
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  FETCH_BED_DETAILS  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE FETCH_BED_DETAILS INPUT.
+IF GV_BEDID IS INITIAL.
+  CLEAR: gv_ward,
+           gv_dept,
+           gv_patient,
+           gv_admit,
+           gv_discharge.
+  RETURN.
+ENDIF.
+IF sy-ucomm = 'SAVE' OR sy-ucomm = 'ADMIT'.
+    RETURN.
+  ENDIF.
+
+  SELECT SINGLE
+    ward_name
+    department_code
+    allotted_to
+
+    INTO ( GV_WARD,
+           GV_DEPT,
+           GV_PATIENT )
+
+
+    FROM ZVV_BED
+    WHERE BED_ID = GV_BEDID.
+
+    IF sy-subrc <> 0.
+    CLEAR: gv_ward,
+           gv_dept,
+           gv_patient,
+           gv_admit,
+           gv_discharge.
+
+    MESSAGE 'Bed ID not found' TYPE 'E'.
+  ENDIF.
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_0200  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE USER_COMMAND_0200 INPUT.
+ DATA: lv_count   TYPE i,
+        lv_patient TYPE zvv_patient-patient_id.
+
+  CASE sy-ucomm.
+
+    WHEN 'SAVE' OR 'ADMIT'.
+
+* Convert Patient ID to internal format
+      CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+        EXPORTING
+          input  = gv_patient
+        IMPORTING
+          output = gv_patient.
+
+* Check whether Patient ID exists
+      SELECT SINGLE patient_id
+        INTO lv_patient
+        FROM zvv_patient
+        WHERE patient_id = gv_patient.
+
+      IF sy-subrc <> 0.
+        MESSAGE 'Patient ID does not exist' TYPE 'E'.
+      ENDIF.
+
+* Check whether patient already has a bed
+      SELECT COUNT( * )
+        INTO lv_count
+        FROM zvv_bed
+        WHERE allotted_to = gv_patient.
+
+      IF lv_count > 0.
+        MESSAGE 'Patient already has a bed' TYPE 'E'.
+      ENDIF.
+
+* Lock Patient
+
+      CALL FUNCTION 'ENQUEUE_EZVV_PATIENT'
+        EXPORTING
+          patient_id = gv_patient.
+
+      UPDATE zvv_bed
+         SET allotted_to    = gv_patient
+             admitted_on    = gv_admit
+             discharge_date = gv_discharge
+       WHERE bed_id = gv_bedid.
+
+      COMMIT WORK.
+
+      CALL FUNCTION 'DEQUEUE_EZVV_PATIENT'
+        EXPORTING
+          patient_id = gv_patient.
+
+      MESSAGE 'Patient admitted'
+      TYPE 'S'.
+
+       WHEN 'BACK'.
+            CLEAR:
+        gv_bedid,
+        gv_ward,
+        gv_dept,
+        gv_patient,
+        gv_admit,
+        gv_discharge.
+      LEAVE TO SCREEN 0100.
+           WHEN 'EXIT'.
+             LEAVE PROGRAM.
+             WHEN 'CANCEL'.
+               LEAVE TO SCREEN 0.
+
+  ENDCASE.
+
+
+
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  DEFAULT_VALUES  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE DEFAULT_VALUES OUTPUT.
+  IF gv_bedid IS NOT INITIAL.
+    IF gv_admit IS INITIAL.
+      gv_admit = sy-datum.
+    ENDIF.
+
+    IF gv_discharge IS INITIAL.
+      gv_discharge = sy-datum + 7.
+    ENDIF.
+  ELSE.
+    CLEAR: gv_admit, gv_discharge.
+  ENDIF.
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  STATUS_0300  OUTPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE STATUS_0300 OUTPUT.
+*  SET PF-STATUS 'xxxxxxxx'.
+*  SET TITLEBAR 'xxx'.
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  FETCH_BED_UPDATE  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE FETCH_BED_UPDATE INPUT.
+SELECT SINGLE ward_name
+               department_code
+               allotted_to
+               admitted_on
+               discharge_date
+  INTO (gv_ward,
+        gv_dept,
+        gv_patient,
+        gv_admit,
+        gv_discharge)
+  FROM zvv_bed
+  WHERE bed_id = gv_bedid.
+
+
+  IF sy-subrc <> 0.
+    MESSAGE 'Bed ID not found' TYPE 'E'.
+
+  ENDIF.
+ENDMODULE.
+*&---------------------------------------------------------------------*
+*&      Module  USER_COMMAND_0300  INPUT
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+MODULE USER_COMMAND_0300 INPUT.
+CASE sy-ucomm.
+
+WHEN 'DISC'.
+UPDATE zvv_bed
+  SET allotted_to    = ''
+      discharge_date = sy-datum
+  WHERE bed_id = gv_bedid.
+
+IF sy-subrc = 0.
+  COMMIT WORK.
+  MESSAGE 'Patient discharged successfully' TYPE 'S'.
+ENDIF.
+
+ WHEN 'BACK'.
+ CLEAR:
+        gv_bedid,
+        gv_ward,
+        gv_dept,
+        gv_patient,
+        gv_admit,
+        gv_discharge.
+      LEAVE TO SCREEN 0100.
+  ENDCASE.
+ENDMODULE.

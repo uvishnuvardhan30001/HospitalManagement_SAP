@@ -1,0 +1,173 @@
+*&---------------------------------------------------------------------*
+*& Report ZVV_OPDSCHED
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT ZVV_OPDSCHED.
+TABLES: zvv_opdsched.
+
+TYPE-POOLS: slis.
+
+
+PARAMETERS:
+  p_dept TYPE zvv_opdsched-department_code OBLIGATORY,
+  p_shift TYPE zvv_opdsched-shift OBLIGATORY.
+
+
+DATA: gt_opd TYPE TABLE OF zvv_opdsched,
+      gs_opd TYPE zvv_opdsched.
+
+DATA: gt_fcat TYPE lvc_t_fcat,
+      gs_fcat TYPE lvc_s_fcat.
+
+DATA: gs_layout TYPE lvc_s_layo.
+
+DATA: gt_events TYPE slis_t_event,
+      gs_event  TYPE slis_alv_event.
+
+
+START-OF-SELECTION.
+
+  SELECT *
+    INTO TABLE gt_opd
+    FROM zvv_opdsched
+    WHERE department_code = p_dept
+      AND shift           = p_shift.
+
+  IF gt_opd IS INITIAL.
+    MESSAGE 'No records found' TYPE 'I'.
+    EXIT.
+  ENDIF.
+
+  PERFORM build_fieldcat.
+  PERFORM build_events.
+
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY_LVC'
+    EXPORTING
+      i_callback_program       = sy-repid
+      i_callback_user_command  = 'USER_COMMAND'
+      it_fieldcat_lvc          = gt_fcat
+      is_layout_lvc            = gs_layout
+      it_events                = gt_events
+    TABLES
+      t_outtab                 = gt_opd.
+
+
+FORM build_fieldcat.
+
+  CLEAR gt_fcat.
+
+  gs_layout-edit = 'X'.
+
+  CLEAR gs_fcat.
+  gs_fcat-fieldname = 'DEPARTMENT_CODE'.
+  gs_fcat-coltext   = 'Department'.
+  gs_fcat-edit      = space.
+  APPEND gs_fcat TO gt_fcat.
+
+  CLEAR gs_fcat.
+  gs_fcat-fieldname = 'SHIFT'.
+  gs_fcat-coltext   = 'Shift'.
+  gs_fcat-edit      = space.
+  APPEND gs_fcat TO gt_fcat.
+
+  CLEAR gs_fcat.
+  gs_fcat-fieldname = 'HDAY'.
+  gs_fcat-coltext   = 'Day'.
+  gs_fcat-edit      = 'X'.
+  APPEND gs_fcat TO gt_fcat.
+
+  CLEAR gs_fcat.
+  gs_fcat-fieldname = 'FROM_TIME'.
+  gs_fcat-coltext   = 'From Time'.
+  gs_fcat-edit      = 'X'.
+  APPEND gs_fcat TO gt_fcat.
+
+  CLEAR gs_fcat.
+  gs_fcat-fieldname = 'TO_TIME'.
+  gs_fcat-coltext   = 'To Time'.
+  gs_fcat-edit      = 'X'.
+  APPEND gs_fcat TO gt_fcat.
+
+  CLEAR gs_fcat.
+  gs_fcat-fieldname = 'DOCTOR_ID'.
+  gs_fcat-coltext   = 'Doctor ID'.
+  gs_fcat-edit      = 'X'.
+  APPEND gs_fcat TO gt_fcat.
+
+ENDFORM.
+
+
+FORM build_events.
+
+  gs_event-name = slis_ev_top_of_page.
+  gs_event-form = 'TOP_OF_PAGE'.
+
+  APPEND gs_event TO gt_events.
+
+ENDFORM.
+
+
+FORM top_of_page.
+
+  DATA: lt_list TYPE slis_t_listheader,
+        ls_list TYPE slis_listheader.
+
+  CLEAR lt_list.
+
+  ls_list-typ  = 'H'.
+  ls_list-info = 'OPD Schedule Report'.
+  APPEND ls_list TO lt_list.
+
+  CLEAR ls_list.
+  ls_list-typ  = 'S'.
+  ls_list-key  = 'Run Date'.
+  ls_list-info = sy-datum.
+  APPEND ls_list TO lt_list.
+
+  CLEAR ls_list.
+  ls_list-typ  = 'S'.
+  ls_list-key  = 'Run Time'.
+  ls_list-info = sy-uzeit.
+  APPEND ls_list TO lt_list.
+
+  CLEAR ls_list.
+  ls_list-typ  = 'S'.
+  ls_list-key  = 'Run By'.
+  ls_list-info = sy-uname.
+  APPEND ls_list TO lt_list.
+
+  CALL FUNCTION 'REUSE_ALV_COMMENTARY_WRITE'
+    EXPORTING
+      it_list_commentary = lt_list.
+
+ENDFORM.
+
+
+FORM user_command USING r_ucomm LIKE sy-ucomm
+                        rs_selfield TYPE slis_selfield.
+
+  CASE r_ucomm.
+
+    WHEN '&DATA_SAVE'
+      OR 'SAVE'.
+
+      LOOP AT gt_opd INTO gs_opd.
+
+        UPDATE zvv_opdsched
+           SET HDAY     = gs_opd-HDAY
+               from_time = gs_opd-from_time
+               to_time   = gs_opd-to_time
+               doctor_id = gs_opd-doctor_id
+         WHERE department_code = gs_opd-department_code
+           AND shift           = gs_opd-shift.
+
+      ENDLOOP.
+
+      COMMIT WORK.
+
+      MESSAGE 'OPD Schedule Updated Successfully' TYPE 'S'.
+
+  ENDCASE.
+
+ENDFORM.
